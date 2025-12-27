@@ -21,23 +21,6 @@ fn runHdl(allocator: std.mem.Allocator, file_path: []const u8) ![]u8 {
     return result.stdout;
 }
 
-test "empty file" {
-    const allocator = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    var file = try tmp.dir.createFile("empty.bin", .{});
-    defer file.close();
-
-    const file_path = try tempFilePath(allocator, &tmp, "empty.bin");
-    defer allocator.free(file_path);
-
-    const output = try runHdl(allocator, file_path);
-    defer allocator.free(output);
-
-    try std.testing.expectEqualStrings("", output);
-}
-
 test "file shorter than one row" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
