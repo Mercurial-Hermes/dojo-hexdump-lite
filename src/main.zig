@@ -15,18 +15,21 @@ pub fn main() !void {
     const file = try std.fs.cwd().openFile(trg_file_path, .{ .mode = .read_only });
     defer file.close();
 
+    const CHUNK_SIZE = 16;
     var reader = file.reader();
+    var buf: [CHUNK_SIZE]u8 = undefined;
 
     while (true) {
-        const b = reader.readByte() catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| {
-                try stderr.print("Read error: {any}\n", .{e});
-                return e;
-            },
+        const n = reader.read(&buf) catch |e| {
+            try stderr.print("Read error: {any}\n", .{e});
+            return e;
         };
 
-        try stdout.print("{x:0>2} ", .{b});
+        if (n == 0) break;
+
+        for (buf[0..n]) |b| {
+            try stdout.print("{x:0>2} ", .{b});
+        }
     }
 
     try stdout.print("\n", .{});
