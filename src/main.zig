@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn main() !void {
     var args = std.process.args();
-    var stdout = std.io.getStdOut().writer();
+    const stdout = std.io.getStdOut().writer();
     var stderr = std.io.getStdErr().writer();
 
     var width: usize = 16;
@@ -32,11 +32,13 @@ pub fn main() !void {
     const file = try std.fs.cwd().openFile(trg_file_path, .{ .mode = .read_only });
     defer file.close();
 
-    var col: usize = 0;
-    var offset: usize = 0;
     const CHUNK_SIZE = 16;
     var reader = file.reader();
     var buf: [CHUNK_SIZE]u8 = undefined;
+
+    var row_buf: [CHUNK_SIZE]u8 = undefined;
+    var row_len: usize = 0;
+    var offset: usize = 0;
 
     while (true) {
         const n = reader.read(&buf) catch |e| {
@@ -47,25 +49,60 @@ pub fn main() !void {
         if (n == 0) break;
 
         for (buf[0..n]) |b| {
-            if (col == 0) {
-                try stdout.print("{d:8} ", .{offset});
-            }
+            row_buf[row_len] = b;
+            row_len += 1;
 
-            try stdout.print("{x:0>2} ", .{b});
-
-            offset += 1;
-            col += 1;
-
-            if (col == width) {
-                try stdout.print("\n", .{});
-                col = 0;
+            if (row_len == width) {
+                try emitRow(stdout, offset, row_buf[0..row_len], width);
+                offset += row_len;
+                row_len = 0;
             }
         }
     }
 
-    if (col != 0) {
-        try stdout.print("\n", .{});
+    if (row_len != 0) {
+        try emitRow(stdout, offset, row_buf[0..row_len], width);
     }
+}
+
+fn emitRow(
+    stdout: anytype,
+    offset: usize,
+    row: []const u8,
+    width: usize,
+) !void {
+    // Offset: 8 hex digits, zero-padded
+    try stdout.print("{x:0>8}  ", .{offset});
+
+    // Hex region with padding
+    var i: usize = 0;
+    while (i < width) : (i += 1) {
+        if (i < row.len) {
+            try stdout.print("{x:0>2}", .{row[i]});
+        } else {
+            try stdout.print("  ", .{});
+        }
+
+        if (i == 7) {
+            try stdout.print("  ", .{});
+        } else {
+            try stdout.print(" ", .{});
+        }
+    }
+
+    // ASCII gutter
+    try stdout.print(" |", .{});
+    i = 0;
+    while (i < width) : (i += 1) {
+        if (i < row.len) {
+            const b = row[i];
+            const ch: u8 = if (b >= 0x20 and b <= 0x7e) b else '.';
+            try stdout.print("{c}", .{ch});
+        } else {
+            try stdout.print(" ", .{});
+        }
+    }
+    try stdout.print("|\n", .{});
 }
 
 fn printUsage() !void {
