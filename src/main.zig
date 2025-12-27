@@ -15,6 +15,7 @@ pub fn main() !void {
     const file = try std.fs.cwd().openFile(trg_file_path, .{ .mode = .read_only });
     defer file.close();
 
+    var offset: usize = 0;
     const CHUNK_SIZE = 16;
     var reader = file.reader();
     var buf: [CHUNK_SIZE]u8 = undefined;
@@ -28,7 +29,8 @@ pub fn main() !void {
         if (n == 0) break;
 
         for (buf[0..n]) |b| {
-            try stdout.print("{x:0>2} ", .{b});
+            try stdout.print("{d:8} {x:0>2}\n", .{ offset, b });
+            offset += 1;
         }
     }
 
