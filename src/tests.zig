@@ -11,6 +11,7 @@ fn runHdl(allocator: std.mem.Allocator, file_path: []const u8) ![]u8 {
         .allocator = allocator,
         .argv = &.{ "zig-out/bin/hdl", file_path },
     });
+    errdefer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     switch (result.term) {
@@ -29,6 +30,7 @@ fn runHdlWithArgs(
         .allocator = allocator,
         .argv = argv,
     });
+    errdefer allocator.free(result.stdout);
     defer allocator.free(result.stderr);
 
     switch (result.term) {
@@ -208,4 +210,109 @@ test "--offset beyond EOF produces silence" {
     defer allocator.free(output);
 
     try std.testing.expectEqualStrings("", output);
+}
+
+// the below set of tests where added in Act 5 Scene 2
+test "--length 0 produces silence" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("ABCDEFGH");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--length", "0", path },
+    );
+    defer allocator.free(output);
+
+    try std.testing.expectEqualStrings("", output);
+}
+
+test "--length shorter than row truncates cleanly" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("ABCDEFGH");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--length", "3", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  41 42 43                                          |ABC             |
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--length aligns with partial final row rules" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+
+    const data = [_]u8{
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09,
+    };
+    try file.writeAll(&data);
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--length", "9", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  00 01 02 03 04 05 06 07  08                       |.........       |
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--offset plus length exceeding EOF produces silence past EOF" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("tiny.bin", .{});
+    defer file.close();
+    try file.writeAll("ABC");
+
+    const path = try tempFilePath(allocator, &tmp, "tiny.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--offset", "1", "--length", "10", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000001  42 43                                             |BC              |
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
 }
