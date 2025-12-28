@@ -1,19 +1,27 @@
 const std = @import("std");
 
+const NumericBase = enum {
+    hex,
+    dec,
+    oct,
+};
+
 pub fn main() !void {
     var args = std.process.args();
     const stdout = std.io.getStdOut().writer();
-    var stderr = std.io.getStdErr().writer();
+    const stderr = std.io.getStdErr().writer();
 
     var width: usize = 16;
     var start_offset: usize = 0;
     var max_len: ?usize = null;
     var trg_file_path: ?[]const u8 = null;
 
+    var base: NumericBase = .hex;
+    var seen_base = false;
+
     _ = args.next(); // argv[0]
 
     // allow up to two flag-value pairs
-    var flags_seen: usize = 0;
     var seen_width = false;
     var seen_offset = false;
     var seen_length = false;
@@ -31,7 +39,6 @@ pub fn main() !void {
             width = try std.fmt.parseInt(usize, v, 10);
             if (width == 0) return error.InvalidUsage;
 
-            flags_seen += 1;
             continue;
         }
 
@@ -42,7 +49,6 @@ pub fn main() !void {
             const v = args.next() orelse return error.InvalidUsage;
             start_offset = try std.fmt.parseInt(usize, v, 10);
 
-            flags_seen += 1;
             continue;
         }
 
@@ -53,7 +59,6 @@ pub fn main() !void {
             const v = args.next() orelse return error.InvalidUsage;
             max_len = try std.fmt.parseInt(usize, v, 10);
 
-            flags_seen += 1;
             continue;
         }
 
@@ -61,7 +66,25 @@ pub fn main() !void {
             if (seen_no_ascii) return error.InvalidUsage;
             seen_no_ascii = true;
             no_ascii = true;
-            flags_seen += 1;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--base")) {
+            if (seen_base) return error.InvalidUsage;
+            seen_base = true;
+
+            const v = args.next() orelse return error.InvalidUsage;
+
+            if (std.mem.eql(u8, v, "hex")) {
+                base = .hex;
+            } else if (std.mem.eql(u8, v, "dec")) {
+                base = .dec;
+            } else if (std.mem.eql(u8, v, "oct")) {
+                base = .oct;
+            } else {
+                return error.InvalidUsage;
+            }
+
             continue;
         }
 
@@ -134,7 +157,7 @@ pub fn main() !void {
             row_len += 1;
 
             if (row_len == width) {
-                try emitRow(stdout, offset, row_buf[0..row_len], width, no_ascii);
+                try emitRow(stdout, offset, row_buf[0..row_len], width, no_ascii, base);
                 offset += row_len;
                 row_len = 0;
             }
@@ -142,7 +165,7 @@ pub fn main() !void {
     }
 
     if (row_len != 0) {
-        try emitRow(stdout, offset, row_buf[0..row_len], width, no_ascii);
+        try emitRow(stdout, offset, row_buf[0..row_len], width, no_ascii, base);
     }
 }
 
@@ -152,9 +175,14 @@ fn emitRow(
     row: []const u8,
     width: usize,
     no_ascii: bool,
+    base: NumericBase,
 ) !void {
     // Offset: 8 hex digits, zero-padded
-    try stdout.print("{x:0>8}  ", .{offset});
+    switch (base) {
+        .hex => try stdout.print("{x:0>8}  ", .{offset}),
+        .dec => try stdout.print("{d:0>8}  ", .{offset}),
+        .oct => try stdout.print("{o:0>8}  ", .{offset}),
+    }
 
     // Hex region
     var i: usize = 0;
@@ -162,7 +190,7 @@ fn emitRow(
     if (no_ascii) {
         // Withholding representation: emit only observed bytes
         while (i < row.len) : (i += 1) {
-            try stdout.print("{x:0>2}", .{row[i]});
+            try printByte(stdout, row[i], base);
 
             if (i + 1 < row.len) {
                 if (i == 7) {
@@ -176,7 +204,7 @@ fn emitRow(
         // Full structural width (Act 4 invariant)
         while (i < width) : (i += 1) {
             if (i < row.len) {
-                try stdout.print("{x:0>2}", .{row[i]});
+                try printByte(stdout, row[i], base);
             } else {
                 try stdout.print("  ", .{});
             }
@@ -210,7 +238,30 @@ fn emitRow(
     try stdout.print("\n", .{});
 }
 
+fn printByte(
+    stdout: anytype,
+    b: u8,
+    base: NumericBase,
+) !void {
+    switch (base) {
+        .hex => try stdout.print("{x:0>2}", .{b}),
+        .dec => try stdout.print("{d:0>3}", .{b}),
+        .oct => try stdout.print("{o:0>3}", .{b}),
+    }
+}
+
 fn printUsage() !void {
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("Usage: hdl <file>\n", .{});
+    try stdout.print(
+        \\Usage: hdl [options] <file>
+        \\
+        \\Options:
+        \\  --width <n>        Bytes per row (default: 16)
+        \\  --offset <n>       Start offset in bytes
+        \\  --length <n>       Maximum number of bytes to read
+        \\  --base <hex|dec|oct>
+        \\                    Numeric base for offsets and byte values
+        \\  --no-ascii        Omit ASCII gutter
+        \\
+    , .{});
 }

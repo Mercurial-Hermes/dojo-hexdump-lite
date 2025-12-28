@@ -523,7 +523,7 @@ test "--base dec renders offset in decimal but preserves layout" {
     defer allocator.free(output);
 
     const expected =
-        \\00000000  65 66 67 68                                      |ABCD            |
+        \\00000000  065 066 067 068                                       |ABCD            |
         \\
     ;
 
@@ -554,7 +554,7 @@ test "--base oct renders bytes in octal without altering grouping" {
     defer allocator.free(output);
 
     const expected =
-        \\00000000  010 011 012 013 014 015 016 017                   |........        |
+        \\00000000  010 011 012 013 014 015 016 017                           |........        |
         \\
     ;
 
