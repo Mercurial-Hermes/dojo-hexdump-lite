@@ -21,6 +21,24 @@ fn runHdl(allocator: std.mem.Allocator, file_path: []const u8) ![]u8 {
     return result.stdout;
 }
 
+fn runHdlWithArgs(
+    allocator: std.mem.Allocator,
+    argv: []const []const u8,
+) ![]u8 {
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = argv,
+    });
+    defer allocator.free(result.stderr);
+
+    switch (result.term) {
+        .Exited => |code| try std.testing.expectEqual(@as(u8, 0), code),
+        else => return error.UnexpectedTermination,
+    }
+
+    return result.stdout;
+}
+
 test "file shorter than one row" {
     const allocator = std.testing.allocator;
     var tmp = std.testing.tmpDir(.{});
@@ -118,4 +136,76 @@ test "file containing non-printable bytes" {
         \\
     ;
     try std.testing.expectEqualStrings(expected, output);
+}
+
+// the below set of tests where added in Act 5 Scene 1
+test "--offset 0 produces identical output" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("ABCDEFGH");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const out_default = try runHdl(allocator, path);
+    defer allocator.free(out_default);
+
+    const out_offset = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--offset", "0", path },
+    );
+    defer allocator.free(out_offset);
+
+    try std.testing.expectEqualStrings(out_default, out_offset);
+}
+
+test "--offset skips bytes but preserves absolute offsets" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("ABCDEFGHIJKLMNOP");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--offset", "4", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000004  45 46 47 48 49 4a 4b 4c  4d 4e 4f 50              |EFGHIJKLMNOP    |
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--offset beyond EOF produces silence" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("tiny.bin", .{});
+    defer file.close();
+    try file.writeAll("ABC");
+
+    const path = try tempFilePath(allocator, &tmp, "tiny.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--offset", "999", path },
+    );
+    defer allocator.free(output);
+
+    try std.testing.expectEqualStrings("", output);
 }
