@@ -502,3 +502,133 @@ test "--no-ascii partial row preserves column alignment across rows" {
 
     try std.testing.expectEqualStrings(expected, output);
 }
+
+// the below set of tests where added in Act 5 Scene 4
+test "--base dec renders offset in decimal but preserves layout" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("ABCD");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--base", "dec", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  65 66 67 68                                      |ABCD            |
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--base oct renders bytes in octal without altering grouping" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("row.bin", .{});
+    defer file.close();
+
+    const row = [_]u8{
+        0x08, 0x09, 0x0a, 0x0b,
+        0x0c, 0x0d, 0x0e, 0x0f,
+    };
+    try file.writeAll(&row);
+
+    const path = try tempFilePath(allocator, &tmp, "row.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--base", "oct", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  010 011 012 013 014 015 016 017                   |........        |
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--base hex matches default output exactly" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("XYZ");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const default_out = try runHdl(allocator, path);
+    defer allocator.free(default_out);
+
+    const hex_out = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--base", "hex", path },
+    );
+    defer allocator.free(hex_out);
+
+    try std.testing.expectEqualStrings(default_out, hex_out);
+}
+
+test "numeric equivalence preserved across bases" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll(&[_]u8{ 0x10, 0x11 });
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const hex_out = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--base", "hex", path },
+    );
+    defer allocator.free(hex_out);
+
+    const dec_out = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--base", "dec", path },
+    );
+    defer allocator.free(dec_out);
+
+    // 0x10 == 16, 0x11 == 17
+    try std.testing.expect(std.mem.containsAtLeast(u8, dec_out, 1, "16"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, dec_out, 1, "17"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hex_out, 1, "10"));
+    try std.testing.expect(std.mem.containsAtLeast(u8, hex_out, 1, "11"));
+}
+
+test "invalid --base value is rejected" {
+    const allocator = std.testing.allocator;
+
+    const result = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "zig-out/bin/hdl", "--base", "binary", "dummy.bin" },
+    });
+
+    defer allocator.free(result.stderr);
+    defer allocator.free(result.stdout);
+
+    switch (result.term) {
+        .Exited => |code| try std.testing.expect(code != 0),
+        else => try std.testing.expect(false),
+    }
+}
