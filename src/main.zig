@@ -14,13 +14,26 @@ pub fn main() !void {
     };
 
     var trg_file_path: []const u8 = undefined;
+    var start_offset: usize = 0;
 
-    if (std.mem.eql(u8, arg1, "--width")) {
+    if (std.mem.eql(u8, arg1, "--offset")) {
+        const offset_str = args.next() orelse {
+            try stderr.print("Missing value for --offset\n", .{});
+            return error.InvalidUsage;
+        };
+        start_offset = try std.fmt.parseInt(usize, offset_str, 10);
+
+        trg_file_path = args.next() orelse {
+            try printUsage();
+            return error.InvalidUsage;
+        };
+    } else if (std.mem.eql(u8, arg1, "--width")) {
         const width_str = args.next() orelse {
             try stderr.print("Missing value for --width\n", .{});
             return error.InvalidUsage;
         };
         width = try std.fmt.parseInt(usize, width_str, 10);
+
         trg_file_path = args.next() orelse {
             try printUsage();
             return error.InvalidUsage;
@@ -29,16 +42,25 @@ pub fn main() !void {
         trg_file_path = arg1;
     }
 
+    if (args.next() != null) {
+        try printUsage();
+        return error.InvalidUsage;
+    }
+
     const file = try std.fs.cwd().openFile(trg_file_path, .{ .mode = .read_only });
     defer file.close();
+
+    try file.seekTo(start_offset);
+    var offset: usize = start_offset;
 
     const CHUNK_SIZE = 16;
     var reader = file.reader();
     var buf: [CHUNK_SIZE]u8 = undefined;
 
-    var row_buf: [CHUNK_SIZE]u8 = undefined;
+    var row_buf = try std.heap.page_allocator.alloc(u8, width);
+    defer std.heap.page_allocator.free(row_buf);
+
     var row_len: usize = 0;
-    var offset: usize = 0;
 
     while (true) {
         const n = reader.read(&buf) catch |e| {
@@ -49,6 +71,7 @@ pub fn main() !void {
         if (n == 0) break;
 
         for (buf[0..n]) |b| {
+            std.debug.assert(row_len < width);
             row_buf[row_len] = b;
             row_len += 1;
 
