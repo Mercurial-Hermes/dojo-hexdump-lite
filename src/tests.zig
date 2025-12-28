@@ -398,3 +398,107 @@ test "--no-ascii does not defeat silence" {
 
     try std.testing.expectEqualStrings("", output);
 }
+
+test "--no-ascii with partial final row preserves structural spacing" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("partial.bin", .{});
+    defer file.close();
+
+    // 10 bytes → partial final row
+    const data = [_]u8{
+        0x00, 0x01, 0x02, 0x03,
+        0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09,
+    };
+    try file.writeAll(&data);
+
+    const path = try tempFilePath(allocator, &tmp, "partial.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--no-ascii", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  00 01 02 03 04 05 06 07  08 09
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--no-ascii preserves full hex geometry on partial row" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("partial.bin", .{});
+    defer file.close();
+
+    // 10 bytes → partial final row
+    const data = [_]u8{
+        0x00, 0x01, 0x02, 0x03,
+        0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09,
+    };
+    try file.writeAll(&data);
+
+    const path = try tempFilePath(allocator, &tmp, "partial.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--no-ascii", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  00 01 02 03 04 05 06 07  08 09
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--no-ascii partial row preserves column alignment across rows" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("two_rows.bin", .{});
+    defer file.close();
+
+    // 18 bytes → first row full, second row partial
+    const data = [_]u8{
+        // row 0
+        0x00, 0x01, 0x02, 0x03,
+        0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b,
+        0x0c, 0x0d, 0x0e, 0x0f,
+        // row 1 (partial)
+        0x10, 0x11,
+    };
+    try file.writeAll(&data);
+
+    const path = try tempFilePath(allocator, &tmp, "two_rows.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--no-ascii", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f
+        \\00000010  10 11
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
