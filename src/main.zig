@@ -7,6 +7,18 @@ const NumericBase = enum {
 };
 
 pub fn main() !void {
+    run() catch |err| {
+        switch (err) {
+            error.InvalidUsage => {
+                try printUsage();
+                std.process.exit(1);
+            },
+            else => return err,
+        }
+    };
+}
+
+fn run() !void {
     var args = std.process.args();
     const stdout = std.io.getStdOut().writer();
     const stderr = std.io.getStdErr().writer();
@@ -93,20 +105,15 @@ pub fn main() !void {
         break;
     }
 
-    const path = trg_file_path orelse {
-        try printUsage();
-        return error.InvalidUsage;
-    };
+    var path = trg_file_path orelse return error.InvalidUsage;
 
     if (path.len == 0) {
-        try printUsage();
-        return error.InvalidUsage;
+        path = trg_file_path orelse return error.InvalidUsage;
     }
 
     // no trailing arguments allowed
     if (args.next() != null) {
-        try printUsage();
-        return error.InvalidUsage;
+        path = trg_file_path orelse return error.InvalidUsage;
     }
 
     const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
