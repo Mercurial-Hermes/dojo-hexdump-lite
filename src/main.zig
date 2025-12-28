@@ -6,51 +6,81 @@ pub fn main() !void {
     var stderr = std.io.getStdErr().writer();
 
     var width: usize = 16;
-    _ = args.next(); // consume arg[0]
+    var start_offset: usize = 0;
+    var max_len: ?usize = null;
+    var trg_file_path: ?[]const u8 = null;
 
-    const arg1 = args.next() orelse {
+    _ = args.next(); // argv[0]
+
+    // allow up to two flag-value pairs
+    var flags_seen: usize = 0;
+    var seen_width = false;
+    var seen_offset = false;
+    var seen_length = false;
+
+    while (true) {
+        const arg = args.next() orelse break;
+
+        if (std.mem.eql(u8, arg, "--width")) {
+            if (seen_width) return error.InvalidUsage;
+            seen_width = true;
+
+            const v = args.next() orelse return error.InvalidUsage;
+            width = try std.fmt.parseInt(usize, v, 10);
+            if (width == 0) return error.InvalidUsage;
+
+            flags_seen += 1;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--offset")) {
+            if (seen_offset) return error.InvalidUsage;
+            seen_offset = true;
+
+            const v = args.next() orelse return error.InvalidUsage;
+            start_offset = try std.fmt.parseInt(usize, v, 10);
+
+            flags_seen += 1;
+            continue;
+        }
+
+        if (std.mem.eql(u8, arg, "--length")) {
+            if (seen_length) return error.InvalidUsage;
+            seen_length = true;
+
+            const v = args.next() orelse return error.InvalidUsage;
+            max_len = try std.fmt.parseInt(usize, v, 10);
+
+            flags_seen += 1;
+            continue;
+        }
+
+        // first non-flag is the file path
+        trg_file_path = arg;
+        break;
+    }
+
+    const path = trg_file_path orelse {
         try printUsage();
         return error.InvalidUsage;
     };
 
-    var trg_file_path: []const u8 = undefined;
-    var start_offset: usize = 0;
-
-    if (std.mem.eql(u8, arg1, "--offset")) {
-        const offset_str = args.next() orelse {
-            try stderr.print("Missing value for --offset\n", .{});
-            return error.InvalidUsage;
-        };
-        start_offset = try std.fmt.parseInt(usize, offset_str, 10);
-
-        trg_file_path = args.next() orelse {
-            try printUsage();
-            return error.InvalidUsage;
-        };
-    } else if (std.mem.eql(u8, arg1, "--width")) {
-        const width_str = args.next() orelse {
-            try stderr.print("Missing value for --width\n", .{});
-            return error.InvalidUsage;
-        };
-        width = try std.fmt.parseInt(usize, width_str, 10);
-
-        trg_file_path = args.next() orelse {
-            try printUsage();
-            return error.InvalidUsage;
-        };
-    } else {
-        trg_file_path = arg1;
+    if (path.len == 0) {
+        try printUsage();
+        return error.InvalidUsage;
     }
 
+    // no trailing arguments allowed
     if (args.next() != null) {
         try printUsage();
         return error.InvalidUsage;
     }
 
-    const file = try std.fs.cwd().openFile(trg_file_path, .{ .mode = .read_only });
+    const file = try std.fs.cwd().openFile(path, .{ .mode = .read_only });
     defer file.close();
 
     try file.seekTo(start_offset);
+    var remaining: ?usize = max_len;
     var offset: usize = start_offset;
 
     const CHUNK_SIZE = 16;
@@ -63,10 +93,28 @@ pub fn main() !void {
     var row_len: usize = 0;
 
     while (true) {
-        const n = reader.read(&buf) catch |e| {
-            try stderr.print("Read error: {any}\n", .{e});
-            return e;
+        const n = blk: {
+            if (remaining) |r| {
+                if (r == 0) break :blk 0;
+
+                const to_read = @min(buf.len, r);
+                const read_n = reader.read(buf[0..to_read]) catch |e| {
+                    try stderr.print("Read error: {any}\n", .{e});
+                    return e;
+                };
+                break :blk read_n;
+            } else {
+                const read_n = reader.read(&buf) catch |e| {
+                    try stderr.print("Read error: {any}\n", .{e});
+                    return e;
+                };
+                break :blk read_n;
+            }
         };
+
+        if (remaining) |*r| {
+            r.* -= n;
+        }
 
         if (n == 0) break;
 
