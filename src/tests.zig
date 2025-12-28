@@ -316,3 +316,85 @@ test "--offset plus length exceeding EOF produces silence past EOF" {
 
     try std.testing.expectEqualStrings(expected, output);
 }
+
+// the below set of tests where added in Act 5 Scene 3
+test "--no-ascii omits ASCII gutter only" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("data.bin", .{});
+    defer file.close();
+    try file.writeAll("ABCDEFGH");
+
+    const path = try tempFilePath(allocator, &tmp, "data.bin");
+    defer allocator.free(path);
+
+    const with_ascii = try runHdl(allocator, path);
+    defer allocator.free(with_ascii);
+
+    const no_ascii = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--no-ascii", path },
+    );
+    defer allocator.free(no_ascii);
+
+    const expected =
+        \\00000000  41 42 43 44 45 46 47 48
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, no_ascii);
+}
+
+test "--no-ascii preserves row width and spacing" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("row.bin", .{});
+    defer file.close();
+
+    const row = [_]u8{
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    };
+    try file.writeAll(&row);
+
+    const path = try tempFilePath(allocator, &tmp, "row.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--no-ascii", path },
+    );
+    defer allocator.free(output);
+
+    const expected =
+        \\00000000  00 01 02 03 04 05 06 07  08 09 0a 0b 0c 0d 0e 0f
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, output);
+}
+
+test "--no-ascii does not defeat silence" {
+    const allocator = std.testing.allocator;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var file = try tmp.dir.createFile("tiny.bin", .{});
+    defer file.close();
+    try file.writeAll("ABC");
+
+    const path = try tempFilePath(allocator, &tmp, "tiny.bin");
+    defer allocator.free(path);
+
+    const output = try runHdlWithArgs(
+        allocator,
+        &.{ "zig-out/bin/hdl", "--offset", "999", "--no-ascii", path },
+    );
+    defer allocator.free(output);
+
+    try std.testing.expectEqualStrings("", output);
+}
